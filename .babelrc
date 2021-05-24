@@ -1,3 +1,12 @@
 {
-    "presets": ["@babel/typescript", ["@babel/env", { "modules": false }]]
+  "plugins": [
+    [
+      "module:@babel/plugin-transform-react-jsx",
+      {
+        "pragma": "Redraw.createElement",
+        "pragmaFrag": "Fragment"
+      }
+    ]
+  ],
+  "presets": ["@babel/typescript", ["@babel/env", { "modules": false }]]
 }

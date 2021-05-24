@@ -9,7 +9,7 @@ console.log(path.join(__dirname, "dist"));
 module.exports = {
   mode: "development",
   entry: {
-    index: path.resolve(__dirname, "src", "index.ts"),
+    index: path.resolve(__dirname, "src", "index.tsx"),
   },
   output: {
     path: path.resolve(__dirname, "dist"),

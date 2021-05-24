@@ -63,7 +63,7 @@ type GameEventListener<Param = any> = [
 
 interface StatefulData<State = GivenState> {
   componentId: string;
-  setState: (state: State) => State;
+  // setState: (state: State) => State;
   getState: () => State;
   getComponent: () => Component;
   updateChildren: (newChildren: Component[]) => void;
@@ -143,9 +143,9 @@ interface Component<State = any> {
   type: string;
   children?: Component[];
   state: CombinedState<State>;
-  setState: (
-    newState: RecursivePartial<CombinedState<State>>
-  ) => CombinedState<State>;
+  // setState: (
+  //   newState: RecursivePartial<CombinedState<State>>
+  // ) => CombinedState<State>;
   draw: DrawFunction<CombinedState<State>>;
 }
 
@@ -779,7 +779,7 @@ function createComponent<State = any>(
   const currentComponent: Component = {
     id: componentId,
     type,
-    setState,
+    // setState,
     draw: combinedOption.draw!,
     state: combinedOption.state,
     children: combinedOption.children,
@@ -962,7 +962,7 @@ function useAnimator(
       if (boundingBox.x) {
         if (newPosX <= boundingBox.x[0] || newPosX >= boundingBox.x[1]) {
           dV.x = 0;
-          component.setState({ physics: { velocity: dV } });
+          component.state.physics.velocity = dV;
           stopLoop();
           return;
         }
@@ -971,7 +971,7 @@ function useAnimator(
       if (boundingBox.y) {
         if (newPosY <= boundingBox.y[0] || newPosY >= boundingBox.y[1]) {
           dV.y = 0;
-          component.setState({ physics: { velocity: dV } });
+          component.state.physics.velocity = dV;
           stopLoop();
           return;
         }
@@ -980,17 +980,13 @@ function useAnimator(
 
     if (dV.x > 0 || dV.x < 0) {
       dV.x *= 1 - speed * 0.001 * TIME.deltaTime;
-      component.setState({
-        position: { x: newPosX },
-        physics: { velocity: dV },
-      });
+      component.state.position.x = newPosX;
+      component.state.physics.velocity = dV;
     }
     if (dV.y > 0 || dV.y < 0) {
       dV.y *= 1 - speed * 0.001 * TIME.deltaTime;
-      component.setState({
-        position: { y: newPosY },
-        physics: { velocity: dV },
-      });
+      component.state.position.y = newPosY;
+      component.state.physics.velocity = dV;
     }
 
     animationFrame = requestAnimationFrame(loop);
@@ -1016,11 +1012,7 @@ function useAnimator(
     if (dV.x < maxSpeed * -1) {
       dV.x = maxSpeed * -1;
     }
-    component.setState({
-      physics: {
-        velocity: dV,
-      },
-    });
+    component.state.physics.velocity = dV;
     startLoop();
   };
 
@@ -1035,11 +1027,7 @@ function useAnimator(
     if (dV.y < maxSpeed * -1) {
       dV.y = maxSpeed * -1;
     }
-    component.setState({
-      physics: {
-        velocity: dV,
-      },
-    });
+    component.state.physics.velocity = dV;
     startLoop();
   };
 
@@ -1054,11 +1042,7 @@ function useAnimator(
     if (dV.x > maxSpeed) {
       dV.x = maxSpeed;
     }
-    component.setState({
-      physics: {
-        velocity: dV,
-      },
-    });
+    component.state.physics.velocity = dV;
     startLoop();
   };
 
@@ -1070,11 +1054,7 @@ function useAnimator(
     if (dV.y > maxSpeed) {
       dV.y = maxSpeed;
     }
-    component.setState({
-      physics: {
-        velocity: dV,
-      },
-    });
+    component.state.physics.velocity = dV;
     startLoop();
   };
 
@@ -1082,41 +1062,33 @@ function useAnimator(
     let component: Component<InitialState> = statefulData.getComponent();
     let { velocity: dV } = component.state.physics;
     dV = multiplyVector(dV, factor);
-    component.setState({
-      physics: {
-        velocity: dV,
-      },
-    });
+    component.state.physics.velocity = dV;
   };
 
   const updateVelocity = (velocity: Vector2) => {
     let component: Component<InitialState> = statefulData.getComponent();
     let { velocity: dV } = component.state.physics;
     dV = velocity;
-    component.setState({
-      physics: {
-        velocity: dV,
-      },
-    });
+    component.state.physics.velocity = dV;
   };
 
-  const bounce = () => {
-    let component: Component<InitialState> = statefulData.getComponent();
-    let { velocity: dV } = component.state.physics;
-    const newDv: Vector2 = {
-      x: dV.x * -1,
-      y: dV.y,
-    };
-    component.setState({
-      position: {
-        x: component.state.position.x + newDv.x,
-      },
-      physics: {
-        velocity: newDv,
-      },
-    });
-    startLoop();
-  };
+  // const bounce = () => {
+  //   let component: Component<InitialState> = statefulData.getComponent();
+  //   let { velocity: dV } = component.state.physics;
+  //   const newDv: Vector2 = {
+  //     x: dV.x * -1,
+  //     y: dV.y,
+  //   };
+  //   component.setState({
+  //     position: {
+  //       x: component.state.position.x + newDv.x,
+  //     },
+  //     physics: {
+  //       velocity: newDv,
+  //     },
+  //   });
+  //   startLoop();
+  // };
 
   const updateSpeed = (newSpeed: number) => {
     speed = newSpeed;
@@ -1133,7 +1105,7 @@ function useAnimator(
     deccelerate,
     animateUp,
     animateDown,
-    bounce,
+    // bounce,
   };
 }
 
@@ -1487,7 +1459,7 @@ function Box({ x, y, height, width, boxNumber }): Component {
   });
 }
 
-function Boxes({ numOfBox }) {
+function Boxes({ numOfBox, destroyedBoxNums = [] }) {
   return createStatefulComponent("Boxes", (statefulData) => {
     const boxes: Component[] = [];
     const numOfCol = 10;
@@ -1495,20 +1467,15 @@ function Boxes({ numOfBox }) {
     const width = 40;
     let currentBoxNum = 0;
 
-    const onHitByBall = (ballNum: number) => {
-      const currentChildren = statefulData.getChildren();
-      const newChildren = currentChildren.filter((child) => {
-        return child.state.boxNumber !== ballNum;
-      });
-      statefulData.updateChildren(newChildren);
-    };
-
     while (currentBoxNum !== numOfBox) {
       const row = Math.floor(currentBoxNum / numOfCol);
       const col = currentBoxNum % numOfCol;
       const x = 26 + col * width;
       const y = 50 + row * height;
-      boxes.push(Box({ x, y, height, width, boxNumber: currentBoxNum }));
+      // @ts-ignore
+      if (!destroyedBoxNums.includes(currentBoxNum)) {
+        boxes.push(Box({ x, y, height, width, boxNumber: currentBoxNum }));
+      }
       currentBoxNum++;
     }
     statefulData.updateChildren(boxes);
@@ -1575,7 +1542,7 @@ function PlayerBar(): Component {
   });
 }
 
-function Ball(): Component {
+function Ball({ onBallHit }): Component {
   const initialState: InitialState = {
     style: {
       strokeColor: "#EEE",
@@ -1656,7 +1623,8 @@ function Ball(): Component {
         }
         if (targetComponent.type === "Box") {
           const state = statefulData.getState();
-          targetComponent.state.destroyed = true;
+          // @ts-ignore
+          onBallHit(state.boxNumber);
           let updatedXVelocity = 0;
           // if ball currently goes left
           if (state.physics.velocity.x < 0) {
@@ -1675,15 +1643,36 @@ function Ball(): Component {
 }
 
 function GamePage(): Component {
-  const children = [
-    Background(),
-    Score(),
-    Boxes({ numOfBox: 60 }),
-    PlayerBar(),
-    Ball(),
-  ];
-  return createComponent("GamePage", {
-    children,
+  const GamePage = createComponent("GamePage", {
+    initialState: {
+      destroyedBoxNum: [],
+    },
+  });
+  return createStatefulComponent(GamePage, (statefulData) => {
+    const onBallHit = (boxNumber: number) => {
+      // @ts-ignore
+      const destroyedBoxNum: number[] = statefulData.getState().destroyedBoxNum;
+      const newBoxNum = [...destroyedBoxNum, boxNumber];
+      // @ts-ignore
+      statefulData.getComponent().state.destroyedBoxNum = newBoxNum;
+      statefulData.updateChildren([
+        Background(),
+        Score(),
+        // @ts-ignore
+        Boxes({ numOfBox: 60, destroyedBoxNums: newBoxNum }),
+        PlayerBar(),
+        Ball({ onBallHit: () => {} }),
+      ]);
+    };
+    const children = [
+      Background(),
+      Score(),
+      Boxes({ numOfBox: 60 }),
+      PlayerBar(),
+      Ball({ onBallHit }),
+    ];
+
+    statefulData.updateChildren(children);
   });
 }
 
