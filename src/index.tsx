@@ -225,10 +225,6 @@ function PlayerBar() {
     />
   );
 }
-// let dd = 0;
-
-// let anitem = 0;
-// setInterval(() => anitem++, 1000);
 
 function App() {
   const [countDown, setCountdown] = useState(0);

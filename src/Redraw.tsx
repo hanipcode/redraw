@@ -16,18 +16,52 @@ interface CreateElementParam {
   children?: ChildrenType;
 }
 
-let lastComponentId = 0;
-let Components = {};
+function createComponentSystem() {
+  let lastComponentId = 0;
+  let Components = {};
 
-function setLastComponentId(componentId: number) {
-  lastComponentId = componentId;
+  const resetComponentHash = () => {
+    lastComponentId = 0;
+    Components = {};
+  };
+
+  const updateComponentTree = (componentTree) => {
+    Components = componentTree;
+  };
+
+  const updateComponentWithId = (componentId, newComponent) => {
+    Components[componentId] = newComponent;
+  };
+
+  const addComponent = (newComponent) => {
+    Components[lastComponentId] = newComponent;
+    lastComponentId += 1;
+  };
+
+  const getComponentTree = () => Components;
+  const getComponentWithId = (componentId) => Components[componentId];
+  const getLastComponentId = () => lastComponentId;
+
+  return {
+    resetComponentHash,
+    updateComponentTree,
+    updateComponentWithId,
+    addComponent,
+    getComponentTree,
+    getComponentWithId,
+    getLastComponentId,
+  };
 }
 
-function getLastComponentId(): number {
-  return lastComponentId;
-}
-
-const ComponentStates: Record<string, any[]> = {};
+const {
+  resetComponentHash,
+  updateComponentTree,
+  updateComponentWithId,
+  addComponent,
+  getComponentTree,
+  getComponentWithId,
+  getLastComponentId,
+} = createComponentSystem();
 
 function prepareProps(props) {
   if (!props) {
@@ -52,7 +86,7 @@ function createElement(
   props?: CreateElementParam,
   ...childArg: Component[]
 ): Component {
-  if ((type as Component).type) {
+  if (type && (type as Component).type) {
     return type as Component;
   }
   const preparedProps = prepareProps(props);
@@ -79,31 +113,19 @@ function createElement(
     return createElement(type(preparedProps));
   }
   const component = {
-    componentId: lastComponentId,
+    componentId: getLastComponentId(),
     type,
     props: {
       ...preparedProps,
       ...preparedProps.props,
     },
   };
-  Components[lastComponentId] = component;
-  lastComponentId += 1;
+  addComponent(component);
   return component;
-}
-
-function setComponentStates(componentId: number, state: any, stateId: number) {
-  if (!ComponentStates[componentId]) {
-    ComponentStates[componentId] = [];
-  }
-  ComponentStates[componentId][stateId] = state;
 }
 
 type CleanupEffectFn = () => void | undefined;
 type EffectFn = () => CleanupEffectFn | void;
-
-function resetComponent() {
-  Components = {};
-}
 
 function createUseMemo(): [
   (
@@ -116,7 +138,7 @@ function createUseMemo(): [
   const memoizedValue = {};
   let lastMemoId = 0;
   const resetMemoId = () => {
-    lastComponentId = 0;
+    lastMemoId = 0;
   };
   const useMemo = (value: (...args: any[]) => any, dependency: any[]) => {
     if (!Array.isArray(dependency)) {
@@ -210,7 +232,14 @@ function createUseEffect(): [
   return [useEffect, resetEffectId];
 }
 
-function createUseState(): [] {
+type UseStateReturn<State = any> = [
+  State,
+  (stateUpdater: StateUpdater<State>) => void
+];
+type StateUpdater<State> = State | ((newState: State) => State);
+
+type UseStateFn = <State = any>(initialState?: State) => UseStateReturn;
+function createUseState(): [UseStateFn, () => void] {
   const States: Record<string, { id: number; value: any }> = {};
   let lastStateId = 0;
 
@@ -221,13 +250,11 @@ function createUseState(): [] {
   function useState<State = any>(initialState?: State): UseStateReturn {
     const setState = (stateUpdater: StateUpdater<State>) => {
       if (typeof stateUpdater === "function") {
-        const lastState: State = States[lastStateId]
-          ? States[lastStateId]
-          : initialState;
-        States[lastStateId] = (stateUpdater as Function)(lastState);
+        const lastState: State = States[lastStateId].value;
+        States[lastStateId].value = (stateUpdater as Function)(lastState);
         return;
       }
-      States[lastStateId] = stateUpdater;
+      States[lastStateId].value = stateUpdater;
     };
 
     // initial State
@@ -238,23 +265,17 @@ function createUseState(): [] {
       };
     }
 
-    return [States[lastStateId], setState];
+    return [States[lastStateId].value, setState];
   }
 
-  return [useState, lastStateId];
+  return [useState, resetLastStateId];
 }
 
 const [useEffect, resetEffecthash] = createUseEffect();
 const [useMemo, resetMemoHash] = createUseMemo();
-const useState = createUseState();
+const [useState, resetStateHash] = createUseState();
 const useCallback = (fn: (...args: any[]) => void, dependency: any[]) =>
   useMemo(fn, dependency);
-
-type StateUpdater<State> = State | ((newState: State) => State);
-type UseStateReturn<State = any> = [
-  State,
-  (stateUpdater: StateUpdater<State>) => void
-];
 
 const InternalCanvasId = "_internalCanvasId";
 let canvas: HTMLCanvasElement;
@@ -303,8 +324,6 @@ function CanvasComponentDrawer() {
       component.props.children.forEach((child) => {
         if (typeof child.type === "string" || typeof child.type === "number") {
           textStr += child.type;
-        } else {
-          throw new Error("text component can only render string or number");
         }
       });
       drawTextNode(textStr, component);
@@ -403,23 +422,23 @@ function clearCanvas() {
 }
 
 function render(component: Component) {
-  lastComponentId = 0;
   renderLoop(component);
 }
 
 function startGame(component: () => Component) {
   function gameLoop() {
     clearCanvas();
-    resetComponent();
+    resetComponentHash();
     resetEffecthash();
     resetMemoHash();
+    resetStateHash();
     render(component());
     // setInterval(gameLoop, 1000);
   }
   setInterval(gameLoop, 1000);
 }
 
-export { startGame, useEffect, useState, createElement, useMemo };
+export { startGame, useEffect, useState, createElement, useMemo, useCallback };
 let Redraw;
 Redraw = (window as any).Redraw = {
   createElement,
