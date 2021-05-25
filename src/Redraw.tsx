@@ -136,38 +136,41 @@ function createUseMemo(): [
 ] {
   const memoizedDependency = {};
   const memoizedValue = {};
-  let lastMemoId = 0;
+  let lastMemoId = -1;
   const resetMemoId = () => {
-    lastMemoId = 0;
+    lastMemoId = -1;
   };
   const useMemo = (value: (...args: any[]) => any, dependency: any[]) => {
     if (!Array.isArray(dependency)) {
       throw new Error(`Dependency should be an array`);
     }
+    // if (typeof value() === "function") {
+    //   return value();
+    // }
+    lastMemoId += 1;
+
     const currentEffectMemoizedDependency = memoizedDependency[lastMemoId];
     // current effect not found. set and update lastMemoid
     if (!currentEffectMemoizedDependency) {
       memoizedDependency[lastMemoId] = dependency;
-      memoizedValue[lastMemoId] = value();
-      lastMemoId += 1;
-      return memoizedValue[lastMemoId];
+      const returnedValue = value();
+      memoizedValue[lastMemoId] = returnedValue;
+      return returnedValue;
     }
     if (dependency.length !== currentEffectMemoizedDependency.length) {
       throw new Error(
         "Dependency cannot have dynamic size and must be same every render"
       );
     }
-    let isSameDependency = true;
-    for (let i = 0; i < dependency.length; i += 1) {
-      if (dependency[i] !== currentEffectMemoizedDependency[i]) {
-        isSameDependency = false;
-        break;
-      }
-    }
+    const isSameDependency = dependency.every(
+      (dep, i) => dep === currentEffectMemoizedDependency[i]
+    );
+
     if (isSameDependency) {
       return memoizedValue[lastMemoId];
     }
     memoizedValue[lastMemoId] = value();
+    memoizedDependency[lastMemoId] = dependency;
     return memoizedValue[lastMemoId];
   };
 
@@ -181,15 +184,16 @@ function createUseEffect(): [
   const Effects = {};
   const EffectDependencies = {};
   const CleanupFunctions = {};
-  let lastEffectId = 0;
+  let lastEffectId = -1;
   const resetEffectId = () => {
-    lastEffectId = 0;
+    lastEffectId = -1;
   };
 
   const useEffect = (effect: EffectFn, dependency: any[]) => {
     if (!Array.isArray(dependency)) {
       throw new Error(`Dependency should be an array`);
     }
+    lastEffectId += 1;
     const currentEffect = Effects[lastEffectId];
     const currentEffectDependency = EffectDependencies[lastEffectId];
     if (!currentEffect) {
@@ -199,7 +203,6 @@ function createUseEffect(): [
       EffectDependencies[lastEffectId] = dependency;
       // run last effect and set return value as cleanup function
       CleanupFunctions[lastEffectId] = Effects[lastEffectId]();
-      lastEffectId += 1;
       return;
     }
 
@@ -241,29 +244,39 @@ type StateUpdater<State> = State | ((newState: State) => State);
 type UseStateFn = <State = any>(initialState?: State) => UseStateReturn;
 function createUseState(): [UseStateFn, () => void] {
   const States: Record<string, { id: number; value: any }> = {};
-  let lastStateId = 0;
+  let lastStateId = -1;
 
   const resetLastStateId = () => {
-    lastStateId = 0;
+    lastStateId = -1;
   };
 
-  function useState<State = any>(initialState?: State): UseStateReturn {
-    const setState = (stateUpdater: StateUpdater<State>) => {
+  function createSetState<State = any>(stateId) {
+    return (stateUpdater: StateUpdater<State>) => {
       if (typeof stateUpdater === "function") {
-        const lastState: State = States[lastStateId].value;
-        States[lastStateId].value = (stateUpdater as Function)(lastState);
+        States[stateId].value = (stateUpdater as Function)(
+          States[stateId].value
+        );
         return;
       }
-      States[lastStateId].value = stateUpdater;
+      States[stateId].value = stateUpdater;
     };
+  }
+
+  function useState<State = any>(initialState?: State): UseStateReturn {
+    lastStateId += 1;
+    // console.log(lastStateId, initialState, "state");
+    const setState = createSetState(lastStateId);
 
     // initial State
     if (!States[lastStateId]) {
+      console.log("initial");
       States[lastStateId] = {
         id: lastStateId,
         value: initialState,
       };
     }
+
+    // console.log(lastStateId, States[lastStateId].value, "returned");
 
     return [States[lastStateId].value, setState];
   }
@@ -275,7 +288,7 @@ const [useEffect, resetEffecthash] = createUseEffect();
 const [useMemo, resetMemoHash] = createUseMemo();
 const [useState, resetStateHash] = createUseState();
 const useCallback = (fn: (...args: any[]) => void, dependency: any[]) =>
-  useMemo(fn, dependency);
+  useMemo(() => fn, dependency);
 
 const InternalCanvasId = "_internalCanvasId";
 let canvas: HTMLCanvasElement;
@@ -435,7 +448,7 @@ function startGame(component: () => Component) {
     render(component());
     // setInterval(gameLoop, 1000);
   }
-  setInterval(gameLoop, 1000);
+  setInterval(gameLoop, 2000);
 }
 
 export { startGame, useEffect, useState, createElement, useMemo, useCallback };

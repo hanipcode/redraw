@@ -1072,24 +1072,6 @@ function useAnimator(
     component.state.physics.velocity = dV;
   };
 
-  // const bounce = () => {
-  //   let component: Component<InitialState> = statefulData.getComponent();
-  //   let { velocity: dV } = component.state.physics;
-  //   const newDv: Vector2 = {
-  //     x: dV.x * -1,
-  //     y: dV.y,
-  //   };
-  //   component.setState({
-  //     position: {
-  //       x: component.state.position.x + newDv.x,
-  //     },
-  //     physics: {
-  //       velocity: newDv,
-  //     },
-  //   });
-  //   startLoop();
-  // };
-
   const updateSpeed = (newSpeed: number) => {
     speed = newSpeed;
   };
