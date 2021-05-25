@@ -1,4 +1,8 @@
 import "./jsxTyping";
+import {
+  PrebuiltComponents,
+  PrebuiltComponentsDefaultProps as DefaultProps,
+} from "./PrebuiltComponents";
 
 interface Component {
   componentId: number;
@@ -13,17 +17,17 @@ interface CreateElementParam {
 }
 
 let lastComponentId = 0;
-let lastRenderedComponentId = 0;
 let Components = {};
+
+function setLastComponentId(componentId: number) {
+  lastComponentId = componentId;
+}
+
+function getLastComponentId(): number {
+  return lastComponentId;
+}
+
 const ComponentStates: Record<string, any[]> = {};
-type EffectDependencyType = any[];
-type EffectId = number;
-let ComponentEffects: Record<
-  string,
-  Array<[EffectFn, EffectDependencyType, EffectId]>
-> = {};
-const EffectDependencies: Record<EffectId, any[]> = {};
-const CleanupEffectFunctions: Record<EffectId, CleanupEffectFn> = {};
 
 function prepareProps(props) {
   if (!props) {
@@ -97,107 +101,160 @@ function setComponentStates(componentId: number, state: any, stateId: number) {
 type CleanupEffectFn = () => void | undefined;
 type EffectFn = () => CleanupEffectFn | void;
 
-function setEffect(
-  componentId: number,
-  effectData: [EffectFn, EffectDependencyType, EffectId]
-) {
-  if (!ComponentEffects[componentId]) {
-    ComponentEffects[componentId] = [];
-  }
-  ComponentEffects[componentId].push(effectData);
-}
-
-function setEffectDependencies(effectId: EffectId, dependencies: any[]) {
-  EffectDependencies[effectId] = dependencies;
-}
-
-function getEffect(
-  componentId
-): Array<[EffectFn, EffectDependencyType, EffectId]> {
-  return ComponentEffects[componentId] || [];
-}
-
-function useEffect(effect: EffectFn, dependencies: any[]) {
-  if (!Array.isArray(dependencies)) {
-    throw new Error(
-      `You are using useEffect in ${Components[lastComponentId].type} without dependencies of type Array!`
-    );
-  }
-  const currentEffects = getEffect(lastComponentId);
-  setEffect(lastComponentId, [effect, dependencies, currentEffects.length]);
-}
-
 function resetComponent() {
   Components = {};
 }
 
-function runEffectCleanups() {
-  ComponentEffects = {};
+function createUseMemo(): [
+  (
+    value: (...args: any[]) => any,
+    dependency: any[]
+  ) => ReturnType<typeof value>,
+  () => void
+] {
+  const memoizedDependency = {};
+  const memoizedValue = {};
+  let lastMemoId = 0;
+  const resetMemoId = () => {
+    lastComponentId = 0;
+  };
+  const useMemo = (value: (...args: any[]) => any, dependency: any[]) => {
+    if (!Array.isArray(dependency)) {
+      throw new Error(`Dependency should be an array`);
+    }
+    const currentEffectMemoizedDependency = memoizedDependency[lastMemoId];
+    // current effect not found. set and update lastMemoid
+    if (!currentEffectMemoizedDependency) {
+      memoizedDependency[lastMemoId] = dependency;
+      memoizedValue[lastMemoId] = value();
+      lastMemoId += 1;
+      return memoizedValue[lastMemoId];
+    }
+    if (dependency.length !== currentEffectMemoizedDependency.length) {
+      throw new Error(
+        "Dependency cannot have dynamic size and must be same every render"
+      );
+    }
+    let isSameDependency = true;
+    for (let i = 0; i < dependency.length; i += 1) {
+      if (dependency[i] !== currentEffectMemoizedDependency[i]) {
+        isSameDependency = false;
+        break;
+      }
+    }
+    if (isSameDependency) {
+      return memoizedValue[lastMemoId];
+    }
+    memoizedValue[lastMemoId] = value();
+    return memoizedValue[lastMemoId];
+  };
+
+  return [useMemo, resetMemoId];
 }
 
-function processEffect(componentId) {
-  const effects = getEffect(componentId);
-  if (Array.isArray(effects) && effects.length > 0) {
-    effects.forEach(([effectFn, dependency, effectId]) => {
-      const effectDependencies = EffectDependencies[effectId];
-      // if !effectDependencies mean initial
-      if (!effectDependencies) {
-        const cleanupEffectFn = effectFn();
-        setEffectDependencies(effectId, dependency);
-        if (typeof cleanupEffectFn === "function") {
-          CleanupEffectFunctions[effectId] = cleanupEffectFn;
-        }
-        return;
-      }
-      if (dependency.length !== effectDependencies.length) {
-        throw new Error(
-          `Dependencies effect cannot be dynamic. check ${Components[componentId].type}`
-        );
-      }
-      let isSameDependency = true;
-      for (let i = 0; i < dependency.length; i++) {
-        if (dependency[i] === effectDependencies[i]) {
-          isSameDependency = false;
-        }
-      }
-      if (!isSameDependency) {
-        // run previous cleanup
-        if (CleanupEffectFunctions[effectId]) {
-          CleanupEffectFunctions[effectId]();
-        }
-        effectFn();
-      }
-    });
-  }
-}
+function createUseEffect(): [
+  (effect: EffectFn, dependency: any[]) => void,
+  () => void
+] {
+  const Effects = {};
+  const EffectDependencies = {};
+  const CleanupFunctions = {};
+  let lastEffectId = 0;
+  const resetEffectId = () => {
+    lastEffectId = 0;
+  };
 
-function useState(initialState: any) {
-  const stateId = ComponentStates[lastComponentId]
-    ? ComponentStates[lastComponentId].length - 1
-    : 0;
-  const currentState = ComponentStates[lastComponentId]
-    ? ComponentStates[lastComponentId][stateId]
-    : initialState;
-  // if state still empty for this component
-  if (!ComponentStates[lastComponentId]) {
-    ComponentStates[lastComponentId] = [];
-  }
-  // initState
-  if (ComponentStates[lastComponentId][stateId] === undefined) {
-    setComponentStates(lastComponentId, initialState, stateId);
-  }
-  const setState = (stateUpdater) => {
-    if (typeof stateUpdater === "function") {
-      const lastState = ComponentStates[lastComponentId]
-        ? ComponentStates[lastComponentId][stateId]
-        : initialState;
-      setComponentStates(lastComponentId, stateUpdater(lastState), stateId);
+  const useEffect = (effect: EffectFn, dependency: any[]) => {
+    if (!Array.isArray(dependency)) {
+      throw new Error(`Dependency should be an array`);
+    }
+    const currentEffect = Effects[lastEffectId];
+    const currentEffectDependency = EffectDependencies[lastEffectId];
+    if (!currentEffect) {
+      // set effect
+      Effects[lastEffectId] = effect;
+      // set deps
+      EffectDependencies[lastEffectId] = dependency;
+      // run last effect and set return value as cleanup function
+      CleanupFunctions[lastEffectId] = Effects[lastEffectId]();
+      lastEffectId += 1;
       return;
     }
-    setComponentStates(lastComponentId, stateUpdater, stateId);
+
+    // checking dependency
+    if (dependency.length !== currentEffectDependency.length) {
+      throw new Error(
+        "Dependency cannot have dynamic size and must be same every render"
+      );
+    }
+    let isSameDependency = true;
+    for (let i = 0; i < dependency.length; i += 1) {
+      if (dependency[i] !== currentEffectDependency[i]) {
+        isSameDependency = false;
+        break;
+      }
+    }
+    if (isSameDependency) {
+      // if dependency is the same, dont run function
+      return;
+    }
+    // run cleanup function first
+    if (typeof CleanupFunctions[lastEffectId] === "function") {
+      CleanupFunctions[lastEffectId]();
+    }
+    EffectDependencies[lastEffectId] = dependency;
+    Effects[lastEffectId] = effect;
+    CleanupFunctions[lastEffectId] = Effects[lastEffectId]();
   };
-  return [currentState, setState];
+
+  return [useEffect, resetEffectId];
 }
+
+function createUseState(): [] {
+  const States: Record<string, { id: number; value: any }> = {};
+  let lastStateId = 0;
+
+  const resetLastStateId = () => {
+    lastStateId = 0;
+  };
+
+  function useState<State = any>(initialState?: State): UseStateReturn {
+    const setState = (stateUpdater: StateUpdater<State>) => {
+      if (typeof stateUpdater === "function") {
+        const lastState: State = States[lastStateId]
+          ? States[lastStateId]
+          : initialState;
+        States[lastStateId] = (stateUpdater as Function)(lastState);
+        return;
+      }
+      States[lastStateId] = stateUpdater;
+    };
+
+    // initial State
+    if (!States[lastStateId]) {
+      States[lastStateId] = {
+        id: lastStateId,
+        value: initialState,
+      };
+    }
+
+    return [States[lastStateId], setState];
+  }
+
+  return [useState, lastStateId];
+}
+
+const [useEffect, resetEffecthash] = createUseEffect();
+const [useMemo, resetMemoHash] = createUseMemo();
+const useState = createUseState();
+const useCallback = (fn: (...args: any[]) => void, dependency: any[]) =>
+  useMemo(fn, dependency);
+
+type StateUpdater<State> = State | ((newState: State) => State);
+type UseStateReturn<State = any> = [
+  State,
+  (stateUpdater: StateUpdater<State>) => void
+];
 
 const InternalCanvasId = "_internalCanvasId";
 let canvas: HTMLCanvasElement;
@@ -212,17 +269,13 @@ function createGameCanvas(component: Component): HTMLCanvasElement {
 }
 
 function drawTextNode(text: string, textComponent: Component) {
-  const offsetY = textComponent.props.offset
-    ? textComponent.props.offset + 30
-    : 30;
-  ctx.fillText(text, 10, offsetY);
+  const { props } = textComponent;
+  ctx.fillText(text, props.x, props.y);
 }
 
-function drawComponent(component: Component) {
-  const { props = {} } = component;
-  // const componentEff = getEffect(component.componentId);
-  processEffect(component.componentId);
-  if (component.type === "canvas") {
+type DrawerFn = (component: Component) => void;
+function CanvasComponentDrawer() {
+  const drawCanvas: DrawerFn = (component) => {
     const currentCanvas = getCanvas();
     if (!currentCanvas) {
       canvas = createGameCanvas(component);
@@ -230,15 +283,20 @@ function drawComponent(component: Component) {
       document.getElementById("root")?.appendChild(canvas);
       return;
     }
-  }
-  if (component.type === "background") {
-    ctx.fillStyle = props.background || "black";
+  };
+  const drawBackground: DrawerFn = (component) => {
+    let { props = {} } = component;
+    props = { ...DefaultProps.Background, ...props };
+    ctx.fillStyle = props.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     return;
-  }
-  if (component.type === "text") {
-    ctx.font = props.font || "16px Arial";
-    ctx.fillStyle = props.fillStyle || "#000";
+  };
+  const drawText: DrawerFn = (component) => {
+    let { props = {} } = component;
+    props = { ...DefaultProps.Text, ...props };
+    ctx.lineWidth = props.lineWidth;
+    ctx.font = props.font;
+    ctx.fillStyle = props.fillStyle;
     if (Array.isArray(component.props.children)) {
       let textStr = "";
 
@@ -251,7 +309,61 @@ function drawComponent(component: Component) {
       });
       drawTextNode(textStr, component);
     }
-    return;
+  };
+  const drawBox: DrawerFn = (component) => {
+    let { props = {} } = component;
+    props = { ...DefaultProps.Box, ...props };
+    ctx.lineWidth = props.lineWidth;
+
+    if (props.fillStyle) {
+      ctx.fillStyle = props.fillStyle;
+      ctx.fillRect(props.x, props.y, props.width, props.height);
+    }
+    if (props.strokeStyle) {
+      ctx.strokeStyle = props.strokeStyle;
+      ctx.strokeRect(props.x, props.y, props.width, props.height);
+    }
+  };
+
+  const drawCircle: DrawerFn = (component) => {
+    let { props = {} } = component;
+    props = { ...DefaultProps.Box, ...props };
+    ctx.lineWidth = props.lineWidth;
+    if (props.fillStyle) {
+      ctx.fillStyle = props.fillStyle;
+      ctx.fillRect(props.x, props.y, props.width, props.height);
+    }
+    if (props.strokeStyle) {
+      ctx.strokeStyle = props.strokeStyle;
+      ctx.strokeRect(props.x, props.y, props.width, props.height);
+    }
+    ctx.beginPath();
+    ctx.arc(props.x, props.y, props.size / 2, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+  };
+  const Drawer: Record<keyof typeof PrebuiltComponents, DrawerFn> = {
+    [PrebuiltComponents.Canvas]: drawCanvas,
+    [PrebuiltComponents.Background]: drawBackground,
+    [PrebuiltComponents.Text]: drawText,
+    [PrebuiltComponents.Box]: drawBox,
+    [PrebuiltComponents.Circle]: drawCircle,
+    // no op
+  };
+
+  return Drawer;
+}
+
+const CanvasDrawer = CanvasComponentDrawer();
+const getDrawFn = (componentType: string) => {
+  return CanvasDrawer[componentType] || undefined;
+};
+
+function drawComponent(component: Component) {
+  // const componentEff = getEffect(component.componentId);
+  const drawFn = getDrawFn(component.type as string);
+  if (drawFn) {
+    drawFn(component);
   }
 }
 
@@ -269,7 +381,6 @@ function handleChildren(children: Component) {
 }
 function renderLoop(component: Component) {
   const { props = {} } = component;
-  lastRenderedComponentId += 1;
   drawComponent(component);
   // recurse child
   if (Array.isArray(props.children) && props.children.length > 0) {
@@ -293,36 +404,22 @@ function clearCanvas() {
 
 function render(component: Component) {
   lastComponentId = 0;
-  lastRenderedComponentId = 0;
   renderLoop(component);
-}
-
-function Background(props) {
-  return createElement("background", {
-    props,
-  });
-}
-
-function GameCanvas(props) {
-  return createElement("canvas", { props });
-}
-
-function Text(props) {
-  return createElement("text", { props });
 }
 
 function startGame(component: () => Component) {
   function gameLoop() {
     clearCanvas();
     resetComponent();
-    runEffectCleanups();
+    resetEffecthash();
+    resetMemoHash();
     render(component());
-    requestAnimationFrame(gameLoop);
+    // setInterval(gameLoop, 1000);
   }
-  gameLoop();
+  setInterval(gameLoop, 1000);
 }
 
-export { startGame, GameCanvas, Background, useEffect, useState, Text };
+export { startGame, useEffect, useState, createElement, useMemo };
 let Redraw;
 Redraw = (window as any).Redraw = {
   createElement,
