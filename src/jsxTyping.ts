@@ -1,5 +1,12 @@
 declare namespace JSX {
   interface IntrinsicElements {
-    [elemName: string]: any;
+    [elemName: string]: {
+      children: any;
+    };
   }
+}
+interface Component {
+  componentId: number;
+  type: Component | Component[] | string | Function;
+  props: any;
 }
