@@ -1,47 +1,11 @@
 import "./jsxTyping";
 import { clearCanvas, CanvasDrawer } from "./CanvasDrawer";
+import { world } from "./physics";
 
 type ChildrenType = Component | Component[] | string | Function;
 interface CreateElementParam {
   props: any;
   children?: ChildrenType;
-}
-
-interface Vector2 {
-  x: number;
-  y: number;
-}
-
-interface CollisionBox {
-  min: Vector2;
-  max: Vector2;
-}
-type CollisionId = number;
-type CollisionArray = [CollisionId, CollisionBox, CollisionDetail];
-interface CollisionDetail {
-  name: string;
-}
-
-interface IntersectData {
-  isIntersect: boolean;
-  distance: Vector2;
-}
-type CollisionEventHandler = (event: CollisionEventData) => void;
-
-type Distance = Vector2;
-type CollisionEventData = [CollisionArray, CollisionArray, Distance];
-const CollisionBoxType = {
-  Box: "Box",
-  Circle: "Circle",
-} as const;
-interface UseCollisionParam {
-  collisionName: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  type: keyof typeof CollisionBoxType;
-  velocity: Vector2;
 }
 
 function createComponentSystem() {
@@ -155,11 +119,9 @@ function createElement(
 type CleanupEffectFn = () => void | undefined;
 type EffectFn = () => CleanupEffectFn | void;
 
+type fun<T> = (...args: any[]) => T;
 function createUseMemo(): [
-  (
-    value: (...args: any[]) => any,
-    dependency: any[]
-  ) => ReturnType<typeof value>,
+  <T>(value: fun<T>, dependency: any[]) => T,
   () => void
 ] {
   const memoizedDependency = {};
@@ -168,18 +130,24 @@ function createUseMemo(): [
   const resetMemoId = () => {
     lastMemoId = -1;
   };
-  const useMemo = (value: (...args: any[]) => any, dependency: any[]) => {
+  function useMemo<T>(value: fun<T>, dependency: any[], key?: string): T {
     if (!Array.isArray(dependency)) {
       throw new Error(`Dependency should be an array`);
     }
-    lastMemoId += 1;
+    let usedKey;
+    if (!key) {
+      lastMemoId += 1;
+      usedKey = lastMemoId;
+    } else {
+      usedKey = key;
+    }
 
-    const currentEffectMemoizedDependency = memoizedDependency[lastMemoId];
-    // current effect not found. set and update lastMemoid
+    const currentEffectMemoizedDependency = memoizedDependency[usedKey];
+    // current effect not found. set and update usedKey
     if (!currentEffectMemoizedDependency) {
-      memoizedDependency[lastMemoId] = dependency;
+      memoizedDependency[usedKey] = dependency;
       const returnedValue = value();
-      memoizedValue[lastMemoId] = returnedValue;
+      memoizedValue[usedKey] = returnedValue;
       return returnedValue;
     }
     if (dependency.length !== currentEffectMemoizedDependency.length) {
@@ -192,12 +160,12 @@ function createUseMemo(): [
     );
 
     if (isSameDependency) {
-      return memoizedValue[lastMemoId];
+      return memoizedValue[usedKey];
     }
-    memoizedValue[lastMemoId] = value();
-    memoizedDependency[lastMemoId] = dependency;
-    return memoizedValue[lastMemoId];
-  };
+    memoizedValue[usedKey] = value();
+    memoizedDependency[usedKey] = dependency;
+    return memoizedValue[usedKey] as ReturnType<typeof value>;
+  }
 
   return [useMemo, resetMemoId];
 }
@@ -305,270 +273,51 @@ function createUseState(): [UseStateFn, () => void] {
   return [useState, resetLastStateId];
 }
 
-const getCollisionBoxFromVelocity = (velocity: Vector2): CollisionBox => {
-  let minX;
-  let minY;
-  let maxX;
-  let maxY;
-  if (velocity.y > 0) {
-    maxY = velocity.y;
-    minY = 0;
-  } else {
-    minY = velocity.y;
-    maxY = 0;
-  }
-  if (velocity.x > 0) {
-    maxX = velocity.x;
-    minX = 0;
-  } else {
-    minX = velocity.x;
-    maxX = 0;
-  }
-  return {
-    min: {
-      x: minX,
-      y: minY,
-    },
-    max: {
-      x: maxX,
-      y: maxY,
-    },
-  };
-};
-
-type UseCollisionFn = (param: UseCollisionParam) => {
-  checkCollidedWith: (
-    collisionData: CollisionEventData[] | null,
-    collisionName: string
-  ) => CollisionEventData[];
-  isCollided: boolean;
-  collidedData: CollisionEventData[] | null;
-  collisionBox: CollisionBox;
-};
-function createUseCollision(): [UseCollisionFn, () => void, () => void] {
-  const CollisionBoxes: CollisionArray[] = [];
-  let CollidedComponents: Record<number, CollisionEventData[]> = {};
-  let lastCollisionBoxId: number = -1;
-
-  const resetLastCollisionBoxId = () => {
-    lastCollisionBoxId = -1;
-  };
-  const calculateCollisionOffset = (
-    collisionBox1: CollisionBox,
-    collisionBox2: CollisionBox
-  ): CollisionBox => {
-    return {
-      min: {
-        x: collisionBox1.min.x + collisionBox2.min.x,
-        y: collisionBox1.min.y + collisionBox2.min.y,
-      },
-      max: {
-        x: collisionBox1.max.x + collisionBox2.max.x,
-        y: collisionBox1.max.y + collisionBox2.max.y,
-      },
-    };
-  };
-
-  const getComponentCollisionBody = ({
-    x,
-    y,
-    width,
-    height,
-    type,
-  }): CollisionBox => {
-    // circle
-    if (type === CollisionBoxType.Circle) {
-      return {
-        min: {
-          x: x - width / 2,
-          y: y - height / 2,
-        },
-        max: {
-          x: x + width / 2,
-          y: y + height / 2,
-        },
-      };
-    }
-
-    return {
-      min: {
-        x,
-        y,
-      },
-      max: {
-        x: x + width,
-        y: y + height,
-      },
-    };
-  };
-
-  function getMinCollisionBoxPoint(collisionBox: CollisionBox): Vector2 {
-    return {
-      x: collisionBox.min.x,
-      y: collisionBox.min.y,
-    };
-  }
-
-  function minCollisionArrayCompare(
-    collisionArr1: CollisionArray,
-    collisionArr2: CollisionArray
-  ) {
-    return minCollisionBox(collisionArr1[1], collisionArr2[1]);
-  }
-
-  function minCollisionBox(
-    collisionBox1: CollisionBox,
-    collisionBox2: CollisionBox
-  ) {
-    const minCollisionBox1 = getMinCollisionBoxPoint(collisionBox1);
-    const minCollisionBox2 = getMinCollisionBoxPoint(collisionBox2);
-    const { x: x1, y: y1 } = minCollisionBox1;
-    const { x: x2, y: y2 } = minCollisionBox2;
-    const factorM1 = Math.sqrt(x1 * x1 + y1 * y1);
-    const factorM2 = Math.sqrt(x2 * x2 + y2 * y2);
-    return factorM1 - factorM2;
-  }
-
-  function isInside(collisionBox1: CollisionBox, collisionBox2: CollisionBox) {
-    const widthC1 = collisionBox1.min.x + collisionBox1.max.x;
-    const widthC2 = collisionBox2.min.x + collisionBox2.max.x;
-    const heightC1 = collisionBox1.min.y + collisionBox1.max.y;
-    const heightC2 = collisionBox2.min.y + collisionBox2.max.y;
-
-    if (widthC1 < widthC2 && heightC1 < heightC2) {
-      return true;
-    }
-    return false;
-  }
-
-  function isIntersect(
-    collisionBox1: CollisionBox,
-    collisionBox2: CollisionBox
-  ) {
-    const d1x = collisionBox2.min.x - collisionBox1.max.x;
-    const d1y = collisionBox2.min.y - collisionBox1.max.y;
-    const d2x = collisionBox1.min.x - collisionBox2.max.x;
-    const d2y = collisionBox1.min.y - collisionBox2.max.y;
-
-    if (d1x > 0 || d1y > 0) {
-      return false;
-    }
-
-    if (d2x > 0 || d2y > 0) {
-      return false;
-    }
-    return true;
-  }
-
-  function checkCollision(
-    collisionBox1: CollisionBox,
-    collisionBox2: CollisionBox
-  ): IntersectData {
-    const isCurrentlyIntersect = isIntersect(collisionBox1, collisionBox2);
-    const distanceX = Math.abs(collisionBox1.min.x - collisionBox2.max.x);
-    const distanceY = Math.abs(collisionBox1.min.y - collisionBox2.max.y);
-    const distance: Vector2 = {
-      x: distanceX,
-      y: distanceY,
-    };
-    return {
-      isIntersect: isCurrentlyIntersect,
-      distance,
-    };
-  }
-
-  function processCollision() {
-    const collisions = CollisionBoxes;
-    const sortedCollisions = collisions.sort(minCollisionArrayCompare);
-    const collidedComponents: CollisionEventData[] = [];
-    CollidedComponents = {};
-
-    for (let i = 1; i < sortedCollisions.length; i++) {
-      const [prevCollisionId, prevCollision] = sortedCollisions[i - 1];
-      const [currentCollisionId, currentCollision] = sortedCollisions[i];
-      const checkCollisionData = checkCollision(
-        prevCollision,
-        currentCollision
-      );
-      if (!CollidedComponents[prevCollisionId]) {
-        CollidedComponents[prevCollisionId] = [];
-      }
-      if (!CollidedComponents[currentCollisionId]) {
-        CollidedComponents[currentCollisionId] = [];
-      }
-      if (checkCollisionData.isIntersect) {
-        CollidedComponents[currentCollisionId].push([
-          sortedCollisions[i],
-          sortedCollisions[i - 1],
-          checkCollisionData.distance,
-        ]);
-      }
-    }
-    return collidedComponents;
-  }
-  const checkCollidedWith = (
-    collided: CollisionEventData[] | null,
-    collisionName: string
-  ): CollisionEventData[] | null => {
-    if (!collided) return null;
-    const collidedWithNames = collided.filter((collisionData) => {
-      const [, collisionTarget] = collisionData;
-      const [, , collisionTargetDetail] = collisionTarget;
-      return collisionTargetDetail.name === collisionName;
-    });
-    if (collidedWithNames.length < 1) {
-      return null;
-    }
-    return collidedWithNames;
-  };
-
-  const useCollision = (param: UseCollisionParam) => {
-    lastCollisionBoxId += 1;
-    const { collisionName } = param;
-    const bodyCollisionBox = getComponentCollisionBody({
-      x: param.x,
-      y: param.y,
-      width: param.width,
-      height: param.height,
-      type: param.type,
-    });
-    const velocityCollisionBox = getCollisionBoxFromVelocity(param.velocity);
-    const collisionBox = calculateCollisionOffset(
-      bodyCollisionBox,
-      velocityCollisionBox
-    );
-    const collisionDetail: CollisionDetail = { name: collisionName };
-    CollisionBoxes[lastCollisionBoxId] = [
-      lastCollisionBoxId,
-      collisionBox,
-      collisionDetail,
-    ];
-    let collidedData: CollisionEventData[] | null = null;
-    if (
-      CollidedComponents[lastCollisionBoxId] &&
-      CollidedComponents[lastCollisionBoxId].length > 0
-    ) {
-      collidedData = CollidedComponents[lastCollisionBoxId];
-    }
-    const isCollided = Array.isArray(collidedData) && collidedData.length > 0;
-    return {
-      collidedData,
-      checkCollidedWith,
-      isCollided,
-      collisionBox: bodyCollisionBox,
-    };
-  };
-  // @ts-ignore
-  return [useCollision, resetLastCollisionBoxId, processCollision];
-}
-
-const [useCollision, resetCollisionHash, processCollision] =
-  createUseCollision();
 const [useEffect, resetEffecthash] = createUseEffect();
 const [useMemo, resetMemoHash] = createUseMemo();
 const [useState, resetStateHash] = createUseState();
-const useCallback = (fn: (...args: any[]) => void, dependency: any[]) =>
+const useCallback = (fn: (...args: any[]) => any, dependency: any[]) =>
   useMemo(() => fn, dependency);
+
+export type RefType<T = any> = {
+  current: T | null;
+};
+
+function createUseRef(): [<T>() => RefType<T>, () => void] {
+  const Refs = {};
+  let lastRefId = -1;
+
+  const resetLastRefId = () => {
+    lastRefId = -1;
+  };
+
+  function createRefObject<T>(lastRefId): RefType<T> {
+    if (Refs[lastRefId]) {
+      return Refs[lastRefId];
+    }
+    const refData: RefType<T> = {
+      // @ts-ignore
+      set current(data) {
+        Refs[lastRefId] = data;
+      },
+      // @ts-ignore
+      get current() {
+        return Refs[lastRefId];
+      },
+    };
+    return refData;
+  }
+
+  function useRef<T>(): RefType<T> {
+    lastRefId += 1;
+    const ref = createRefObject<T>(lastRefId);
+
+    return ref;
+  }
+
+  return [useRef, resetLastRefId];
+}
+const [useRef, resetRefHash] = createUseRef();
 
 const getDrawFn = (componentType: string) => {
   return CanvasDrawer[componentType] || undefined;
@@ -583,9 +332,6 @@ function drawComponent(component: Component) {
 }
 
 function handleChildren(children: Component) {
-  if ((children as Component).type) {
-    drawComponent(children as Component);
-  }
   // render if single child
   if ((children as Component).type) {
     renderLoop(children as Component);
@@ -608,18 +354,18 @@ function render(component: Component) {
 }
 
 function startGame(component: () => Component) {
-  function gameLoop() {
+  function gameLoop(time) {
     clearCanvas();
     resetComponentHash();
     resetEffecthash();
     resetMemoHash();
     resetStateHash();
-    resetCollisionHash();
-    processCollision();
+    resetRefHash();
     render(component());
+    world.step(1 / 60, time / 1000);
     requestAnimationFrame(gameLoop);
   }
-  gameLoop();
+  gameLoop(0);
 }
 
 export {
@@ -629,7 +375,7 @@ export {
   createElement,
   useMemo,
   useCallback,
-  useCollision,
+  useRef,
 };
 let Redraw;
 Redraw = (window as any).Redraw = {

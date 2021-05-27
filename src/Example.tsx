@@ -1,26 +1,50 @@
 import "./index.css";
 import "./jsxTyping";
+import { pxm, mpx } from "./measure";
 import Redraw, {
   useEffect,
   useState,
   startGame,
   useMemo,
-  useCallback,
-  useCollision,
+  useRef,
 } from "./Redraw";
+import { useControllerState } from "./RedrawHooks";
 import {
   Background,
   Text,
   GameCanvas,
   Box,
   Circle,
-  CollisionBoxDrawer,
+  CircleBody,
+  GroundBody,
   Fragment,
+  BoxBody,
 } from "./PrebuiltComponents";
-import { useAnimator, usePhysics, useControllerState } from "./RedrawHooks";
-import type { BoundingBox, Vector2 } from "./RedrawHooks";
+import * as planck from "planck";
 
-function Boxes({ numOfBox, onBallCollide }) {
+function getContactWith(
+  body: planck.Body | null,
+  name: string
+): [planck.Body, planck.Contact] | null {
+  if (!body) {
+    return null;
+  }
+  const contactList = body.getContactList();
+  if (!contactList) {
+    return null;
+  }
+  let contact = contactList;
+  do {
+    const userData: any = contact.other?.getUserData();
+    if (userData && userData.name === name) {
+      return [contact.other!, contact.contact];
+    }
+    contact = contact.next!;
+  } while (contact?.next);
+  return null;
+}
+
+function Boxes({ numOfBox }) {
   const [boxes, setBoxes] = useState([]);
   const numOfCol = 10;
   const height = 30;
@@ -42,35 +66,18 @@ function Boxes({ numOfBox, onBallCollide }) {
     setBoxes(addedBox);
   }, []);
 
-  const onCollide = (boxNum) => {
-    const nextBoxes = boxes.filter(
-      ({ currentBoxNum }) => currentBoxNum !== boxNum
-    );
-    onBallCollide();
-    setBoxes(nextBoxes);
-  };
-
   return boxes.map((boxData) => {
-    return <BoxWithCollision {...boxData} onCollide={onCollide} />;
+    return (
+      <BoxWithCollision {...boxData} key={`CurrentBox-${currentBoxNum}`} />
+    );
   });
 }
 
-function BoxWithCollision({ x, y, height, width, currentBoxNum, onCollide }) {
-  const { checkCollidedWith, collidedData } = useCollision({
-    x,
-    y,
-    height,
-    width,
-    velocity: { x: 0, y: 0 },
-    type: "Box",
-    collisionName: "box",
-  });
-  const collidedWithBall = checkCollidedWith(collidedData, "ball");
-  if (collidedWithBall) {
-    onCollide(currentBoxNum);
-  }
+function BoxWithCollision({ x, y, height, width, key }) {
   return (
-    <Box
+    <BoxBody
+      name={`Boxese-${key}`}
+      key={key}
       x={x}
       y={y}
       height={height}
@@ -83,48 +90,39 @@ function BoxWithCollision({ x, y, height, width, currentBoxNum, onCollide }) {
 
 function PlayerBar() {
   const barWidth = 120;
-  const canvasBoundingBox: BoundingBox = {
-    x: [0, 450 - barWidth],
-    y: [0, 650],
-  };
-  const { position, velocity, animateLeft, animateRight, stopMovingX } =
-    useAnimator({
-      x: 300,
-      y: 605,
-      speed: 3,
-      maxSpeed: 5,
-      boundingBox: canvasBoundingBox,
-    });
-  const { collisionBox, isCollided } = useCollision({
-    x: position.x,
-    y: position.y,
-    velocity,
-    width: barWidth,
-    height: 20,
-    collisionName: "bar",
-    type: "Box",
-  });
-  const { PressedKeys, iskKeyPressed, ControllerKey, isNoKeyPressed } =
+  const bodyRef = useRef<planck.Body>();
+  const { PressedKeys, iskKeyPressed, isNoKeyPressed, ControllerKey } =
     useControllerState();
   useEffect(() => {
     if (iskKeyPressed(ControllerKey.ArrowLeft)) {
-      animateLeft();
+      bodyRef.current?.setLinearVelocity(planck.Vec2(-20, 0));
     }
     if (iskKeyPressed(ControllerKey.ArrowRight)) {
-      animateRight();
+      bodyRef.current?.setLinearVelocity(planck.Vec2(20, 0));
     }
     if (isNoKeyPressed()) {
-      stopMovingX();
+      bodyRef.current?.setLinearVelocity(planck.Vec2(0, 0));
     }
   }, [PressedKeys]);
+  const position = bodyRef.current?.getPosition();
+  const velocity = bodyRef.current?.getLinearVelocity();
+  if (position && position.x <= 0 && velocity!.x <= 0) {
+    bodyRef.current?.setLinearVelocity(planck.Vec2(0, 0));
+  }
+  if (position && position.x >= pxm(320) && velocity!.x >= 0) {
+    bodyRef.current?.setLinearVelocity(planck.Vec2(0, 0));
+  }
   return (
     <Fragment>
-      <Box
-        x={position.x}
-        y={position.y}
+      <BoxBody
+        x={300}
+        y={605}
         width={barWidth}
         height={20}
+        bodyRef={bodyRef}
         strokeStyle="#FFF"
+        type="kinematic"
+        name="PlayerBar"
         lineWidth={4}
         fillStyle="black"
       />
@@ -133,99 +131,82 @@ function PlayerBar() {
 }
 
 function Ball() {
-  const boundingBox: BoundingBox = {
-    x: [12, 450 - 12],
-    y: [12, 650 - 12],
-  };
-  const {
-    position,
-    velocity,
-    setVelocity,
-    animateLeft,
-    bounceDown,
-    bounceLeft,
-    bounceUp,
-    bounceRight,
-  } = usePhysics({
-    x: 300,
-    y: 300,
-    maxSpeed: Number.POSITIVE_INFINITY,
-    boundingBox,
-  });
-  const { collidedData, checkCollidedWith, isCollided, collisionBox } =
-    useCollision({
-      x: position.x,
-      y: position.y,
-      velocity,
-      width: 24,
-      height: 24,
-      collisionName: "ball",
-      type: "Circle",
-    });
-  const collideWithBar = checkCollidedWith(collidedData!, "bar");
-  const collideWithBox = checkCollidedWith(collidedData!, "box");
-  const handleCollideWithBar = useCallback((distance: Vector2) => {
-    if (distance.x < 55) {
-      bounceUp((55 - distance.x) * 0.1 * -1);
+  const bodyRef = useRef<planck.Body>();
+  const body = bodyRef.current;
+  const contactWithBar = getContactWith(body, "PlayerBar");
+  if (contactWithBar) {
+    const [_, contact] = contactWithBar;
+    const data: any = contact.getFixtureA().getUserData() || {};
+    if (data.sideName === "left") {
+      body?.applyLinearImpulse(
+        planck.Vec2(pxm(0.5), pxm(-6)),
+        planck.Vec2(0, 0)
+      );
     }
-    if (distance.x > 55) {
-      bounceUp(distance.x * 0.01);
+    if (data.sideName === "right") {
+      body?.applyLinearImpulse(
+        planck.Vec2(pxm(-0.5), pxm(-6)),
+        planck.Vec2(0, 0)
+      );
     }
-  }, []);
-
-  const handleCollideWithBox = useCallback((distance: Vector2) => {
-    bounceDown();
-  }, []);
-
-  // handle collide with walls
-  // left
-  if (position.x === boundingBox.x[0]) {
-    bounceRight();
   }
-  // upper
-  if (position.y === boundingBox.y[0]) {
-    bounceDown();
-  }
-  if (position.x === boundingBox.x[1]) {
-    bounceLeft();
-  }
-  if (collideWithBar) {
-    const collisionData = collideWithBar[0];
-    const [, , distance] = collisionData;
-    handleCollideWithBar(distance);
-  }
-  if (collideWithBox) {
-    handleCollideWithBox();
-  }
-
   return (
     <Fragment>
-      <Circle
-        x={position.x}
-        y={position.y}
+      <CircleBody
+        type="dynamic"
+        name="ball"
+        x={300}
+        y={300}
         fillStyle="#000"
         strokeStyle="#FFF"
         lineWidth={3}
+        bodyRef={bodyRef}
         size={24}
       />
     </Fragment>
   );
 }
 
+function Ground() {}
+
 function App() {
-  const [score, setScore] = useState(0);
-  const onBallCollide = useCallback(() => {
-    setScore((oldScore) => oldScore + 10);
-  }, []);
   return (
     <GameCanvas>
       <Background background="#dadada">
-        <Boxes numOfBox={60} onBallCollide={onBallCollide} />
-        <Text x={26} y={30} fillStyle="red">
-          Score: {score}
-        </Text>
         <Ball />
         <PlayerBar />
+        <GroundBody
+          x={0}
+          y={645}
+          width={605}
+          height={5}
+          drawGround
+          name="BottomGround"
+        />
+        <GroundBody
+          x={445}
+          y={0}
+          width={5}
+          height={650}
+          drawGround
+          name="RightGround"
+        />
+        <GroundBody
+          x={0}
+          y={0}
+          width={5}
+          height={650}
+          drawGround
+          name="LeftGroud"
+        />
+        <GroundBody
+          x={0}
+          y={0}
+          width={605}
+          height={5}
+          drawGround
+          name="BottomGround"
+        />
       </Background>
     </GameCanvas>
   );

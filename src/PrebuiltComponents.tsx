@@ -1,4 +1,8 @@
-import { createElement } from "./Redraw";
+import { createElement, useMemo } from "./Redraw";
+import type { RefType } from "./Redraw";
+import { world } from "./physics";
+import * as planck from "planck";
+import { mpx, pxm } from "./measure";
 
 const PrebuiltComponents = {
   Text: "Text",
@@ -28,6 +32,7 @@ const PrebuiltComponentsDefaultProps = {
 
 export type Props<ComponentProps> = ComponentProps & {
   children?: any;
+  key?: string;
 };
 
 interface BackgroundProps {
@@ -82,36 +87,134 @@ function Circle(props: Props<CircleProps>) {
   return createElement(PrebuiltComponents.Circle, { props });
 }
 
-// const drawCollisionBound = (game: Game, component: Component): void => {
-//   const { ctx } = game;
-//   const collisionBodyWithOffset =
-//     getComponentCollisionBodyWithOffset(component);
-//   const { min, max } = collisionBodyWithOffset;
-//   const width = max.x - min.x;
-//   const height = max.y - min.y;
-//   ctx.strokeStyle = "blue";
-//   ctx.lineWidth = 4;
-//   ctx.strokeRect(min.x, min.y, width, height);
-// };
+interface CircleBodyProps extends CircleProps {
+  type?: "static" | "kinematic" | "dynamic";
+  bodyRef?: RefType<planck.Body>;
+  name: string;
+}
 
-function CollisionBoxDrawer({ isDrawCollision, collisionBox, lineWidth = 2 }) {
-  if (!isDrawCollision || !collisionBox) {
+function CircleBody(props: Props<CircleBodyProps>) {
+  const body = useMemo<planck.Body>(() => {
+    const body = world.createBody({
+      position: planck.Vec2(pxm(props.x), pxm(props.y)),
+      type: props.type || "static",
+      userData: {
+        name: props.name,
+      },
+    });
+    const shape = planck.Circle(pxm(props.size) / 8) as unknown as planck.Shape;
+    body.createFixture({
+      shape: shape,
+      density: 1,
+      friction: 0.3,
+      restitution: 0.7,
+    });
+    return body;
+  }, []);
+  if (props.bodyRef) {
+    props.bodyRef.current = body;
+  }
+  const position = body.getPosition();
+  return <Circle {...props} x={mpx(position.x)} y={mpx(position.y)} />;
+}
+
+interface BoxBodyProps extends BoxProps {
+  type?: "static" | "kinematic" | "dynamic";
+  bodyRef?: RefType<planck.Body>;
+  name: string;
+}
+
+function BoxBody({ type = "static", ...props }: Props<BoxBodyProps>) {
+  const body = useMemo<planck.Body>(
+    () => {
+      const body = world.createBody({
+        position: planck.Vec2(pxm(props.x), pxm(props.y)),
+        userData: {
+          name: props.name,
+        },
+        type: type,
+      });
+      const shapeWidth = pxm(props.width) / 2;
+      const shapeLeft = planck.Box(
+        shapeWidth / 2,
+        pxm(props.height),
+        planck.Vec2(shapeWidth / 2, pxm(props.height / 2))
+      ) as planck.Shape;
+      const shapeRight = planck.Box(
+        shapeWidth / 2,
+        pxm(props.height),
+        planck.Vec2(shapeWidth * 1.6, pxm(props.height / 2))
+      ) as planck.Shape;
+      body.createFixture({
+        shape: shapeLeft,
+        density: 0.1,
+        userData: {
+          sideName: "left",
+        },
+        friction: 0.3,
+      });
+      body.createFixture({
+        shape: shapeRight,
+        density: 0.1,
+        userData: {
+          sideName: "right",
+        },
+        friction: 0.3,
+      });
+
+      return body;
+    },
+    [],
+    props.key
+  );
+  const position = body.getPosition();
+  if (props.bodyRef) {
+    props.bodyRef.current = body;
+  }
+  return <Box {...props} x={mpx(position.x)} y={mpx(position.y)} />;
+}
+
+interface GroundBodyProps {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  drawGround?: boolean;
+  alloswSleep?: boolean;
+  name: string;
+}
+
+function GroundBody({
+  width,
+  height,
+  x,
+  y,
+  drawGround = false,
+  alloswSleep = true,
+  name,
+}: Props<GroundBodyProps>) {
+  const body = useMemo(() => {
+    const body = world.createBody({
+      position: planck.Vec2(pxm(x), pxm(y)),
+      allowSleep: alloswSleep,
+      userData: {
+        name: name,
+      },
+    });
+    const groundBox = planck.Box(
+      pxm(width) / 2,
+      pxm(height) / 2,
+      planck.Vec2(pxm(width / 2), pxm(height / 2))
+    ) as planck.Shape;
+    body.createFixture({
+      shape: groundBox,
+    });
+    return body;
+  }, []);
+  if (!drawGround) {
     return null;
   }
-  const { min, max } = collisionBox;
-  const width = max.x - min.x;
-  const height = max.y - min.y;
-  return (
-    <Box
-      x={min.x}
-      y={min.y}
-      width={width}
-      height={height}
-      strokeStyle="blue"
-      fillStyle="transparent"
-      lineWidth={lineWidth}
-    />
-  );
+  return <Box x={x} y={y} width={width} height={height} fillStyle="#444" />;
 }
 
 function Fragment({ children }: any) {
@@ -130,6 +233,8 @@ export {
   Box,
   Circle,
   Fragment,
+  CircleBody,
+  GroundBody,
+  BoxBody,
   PrebuiltComponentsDefaultProps,
-  CollisionBoxDrawer,
 };
