@@ -4,12 +4,15 @@
   "description": "",
   "main": "webpack.config.js",
   "dependencies": {
+    "@types/color": "^3.0.1",
     "@types/lodash": "^4.14.169",
+    "color": "^3.1.3",
     "deepmerge": "^4.2.2",
     "immer": "^9.0.2",
     "lodash": "^4.17.21",
     "matter-js": "^0.17.1",
     "nanoid": "^3.1.23",
+    "pixi.js": "^6.0.4",
     "planck": "^1.0.0-alpha.2"
   },
   "devDependencies": {

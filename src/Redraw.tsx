@@ -1,5 +1,6 @@
 import "./jsxTyping";
-import { clearCanvas, CanvasDrawer } from "./CanvasDrawer";
+// import { clearCanvas, CanvasDrawer } from "./CanvasDrawer";
+import { clearGameApp, PixiDrawer } from "./PixiDrawer";
 import { world } from "./physics";
 
 type ChildrenType = Component | Component[] | string | Function;
@@ -308,19 +309,24 @@ function createUseRef(): [<T>() => RefType<T>, () => void] {
     return refData;
   }
 
-  function useRef<T>(): RefType<T> {
-    lastRefId += 1;
+  function useRef<T>(refKey): RefType<T> {
+    let usedKey;
+    if (!refKey) {
+      lastRefId += 1;
+    } else {
+      usedKey = refKey;
+    }
     const ref = createRefObject<T>(lastRefId);
 
     return ref;
   }
-
+  // @ts-ignore
   return [useRef, resetLastRefId];
 }
 const [useRef, resetRefHash] = createUseRef();
 
 const getDrawFn = (componentType: string) => {
-  return CanvasDrawer[componentType] || undefined;
+  return PixiDrawer[componentType] || undefined;
 };
 
 function drawComponent(component: Component) {
@@ -333,9 +339,9 @@ function drawComponent(component: Component) {
 
 function handleChildren(children: Component) {
   // render if single child
-  if ((children as Component).type) {
-    renderLoop(children as Component);
-  }
+  // if ((children as Component).type) {
+  //   requestAnimationFrame(() => renderLoop(children as Component));
+  // }
   if (Array.isArray(children)) {
     children.forEach(renderLoop);
   }
@@ -355,14 +361,14 @@ function render(component: Component) {
 
 function startGame(component: () => Component) {
   function gameLoop(time) {
-    clearCanvas();
+    clearGameApp();
     resetComponentHash();
     resetEffecthash();
     resetMemoHash();
     resetStateHash();
     resetRefHash();
     render(component());
-    world.step(1 / 60, time / 1000);
+    world.step(1 / 60, time / 1000, time / 1000);
     requestAnimationFrame(gameLoop);
   }
   gameLoop(0);

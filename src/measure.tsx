@@ -1,4 +1,4 @@
-const meterToPixelRatio = 25;
+const meterToPixelRatio = 26;
 
 function mpx(pixel: number): number {
   return pixel * meterToPixelRatio;

@@ -98,6 +98,7 @@ function CircleBody(props: Props<CircleBodyProps>) {
     const body = world.createBody({
       position: planck.Vec2(pxm(props.x), pxm(props.y)),
       type: props.type || "static",
+      bullet: true,
       userData: {
         name: props.name,
       },
@@ -106,8 +107,8 @@ function CircleBody(props: Props<CircleBodyProps>) {
     body.createFixture({
       shape: shape,
       density: 1,
-      friction: 0.3,
-      restitution: 0.7,
+      friction: 0.1,
+      restitution: 0.8,
     });
     return body;
   }, []);
@@ -135,14 +136,50 @@ function BoxBody({ type = "static", ...props }: Props<BoxBodyProps>) {
         type: type,
       });
       const shapeWidth = pxm(props.width) / 2;
+      const shape = planck.Box(
+        shapeWidth,
+        pxm(props.height),
+        planck.Vec2(shapeWidth, pxm(props.height))
+      ) as planck.Shape;
+      body.createFixture({
+        shape: shape,
+        density: 20,
+        friction: 0,
+      });
+      return body;
+    },
+    [],
+    props.key
+  );
+  const position = body.getPosition();
+  if (props.bodyRef) {
+    props.bodyRef.current = body;
+  }
+  return <Box {...props} x={mpx(position.x)} y={mpx(position.y)} />;
+}
+
+function BoxBodyDoubleFixture({
+  type = "static",
+  ...props
+}: Props<BoxBodyProps>) {
+  const body = useMemo<planck.Body>(
+    () => {
+      const body = world.createBody({
+        position: planck.Vec2(pxm(props.x), pxm(props.y)),
+        userData: {
+          name: props.name,
+        },
+        type: type,
+      });
+      const shapeWidth = pxm(props.width) / 2;
       const shapeLeft = planck.Box(
         shapeWidth / 2,
-        pxm(props.height),
+        pxm(props.height / 1.6),
         planck.Vec2(shapeWidth / 2, pxm(props.height / 2))
       ) as planck.Shape;
       const shapeRight = planck.Box(
         shapeWidth / 2,
-        pxm(props.height),
+        pxm(props.height / 1.6),
         planck.Vec2(shapeWidth * 1.6, pxm(props.height / 2))
       ) as planck.Shape;
       body.createFixture({
@@ -231,6 +268,7 @@ export {
   GameCanvas,
   Text,
   Box,
+  BoxBodyDoubleFixture,
   Circle,
   Fragment,
   CircleBody,
